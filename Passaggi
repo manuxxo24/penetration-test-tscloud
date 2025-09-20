@@ -1,0 +1,103 @@
+# Security Testing Report – Sito Next.js / Vercel
+
+## 1. Introduzione
+**Obiettivo:** verificare la sicurezza dell’applicazione Next.js/TypeScript, identificare possibili vulnerabilità lato login, API, input utente e configurazioni server.
+
+**Ambiente:**
+- Sistema operativo: Kali Linux
+- Strumenti: Burp Suite Community Edition, sqlmap, Nikto, Gobuster, Dirb, Nmap
+- URL target: `https://tscloudapp.vercel.app`
+
+---
+
+## 2. Scansione iniziale e porte
+
+**Obiettivo:** identificare porte aperte e servizi esposti.
+
+| Porta | Stato     | Servizio      | Note |
+|-------|-----------|---------------|------|
+| 443   | open      | HTTPS         | Accessibile, login e API funzionanti |
+| 80    | open      | HTTP          | Reindirizza automaticamente a HTTPS |
+| 8080  | filtered  | HTTP-proxy    | Non accessibile dall’esterno |
+
+**Screenshot:**
+![Scan iniziale]( https://i.imgur.com/w7mIMip )
+*Scan Nmap iniziale con porte 443, 80 e filtrata 8080.*
+
+---
+
+## 3. Enumerazione directory
+
+**Strumenti:** Gobuster e Dirb  
+**Obiettivo:** trovare directory e file interessanti per test di sicurezza.
+
+**Screenshot Gobuster:**
+![Gobuster directories]( https://i.imgur.com/2DaWOxb )
+![Gobuster results]( https://i.imgur.com/eAUpRYZ )
+*Directory trovate con Gobuster e Dirb: `/login`, `/cgi-bin`, `/favicon.ico`.*
+
+---
+
+## 4. Login e API testing
+
+**Screenshot pagina login:**
+![Login page]( https://i.imgur.com/5I12Dsj)
+
+**Passaggi:**
+- Intercettata richiesta POST con Burp Suite Repeater.
+- Tentativo di SQL injection sul campo `nid` (accetta solo 4 cifre).
+- Test sqlmap con file di richiesta → **0 risultati**.  
+- Test Nikto sulle porte → **0 risultati**.
+
+**Screenshot principali:**
+![Burp login intercept]( https://i.imgur.com/UwTSsbV )  
+![Richiesta POST login]( https://i.imgur.com/ALaAeeQ )  
+![SQL injection tentativo]( https://i.imgur.com/B35jqlj )  
+![Campo nid 4 cifre]( https://i.imgur.com/Fxp1Rhm )  
+![Sqlmap tentativo 1]( https://i.imgur.com/BfQsqBG )  
+![Sqlmap tentativo 2]( https://i.imgur.com/eYjBalK )  
+![Sqlmap tentativo 3]( https://i.imgur.com/zyWhTfP )  
+![Password vuota]( https://i.imgur.com/ThtS8hg )  
+![Tentativo id reale]( https://i.imgur.com/tEaqX2s )  
+
+**Osservazioni:**
+- Con `nid` valido e password errata → `"Password non corretta"`  
+- Con `nid` inesistente → `"Codice di accesso non valido"`  
+- Nessuna vulnerabilità SQL injection rilevata.
+
+---
+
+## 5. XSS interno
+
+**Obiettivo:** testare vulnerabilità Cross-Site Scripting su campi interni (motivo ferie, bio, descrizione).
+
+**Screenshot XSS:**
+![XSS test 1](https://i.imgur.com/NdW4uaV.png)  
+![XSS test 2](https://i.imgur.com/T38bSb0.png)  
+
+**Conclusione:** input sanitizzato correttamente → nessuna vulnerabilità XSS.
+
+---
+
+## 6. Ulteriore scansione porte
+
+**Screenshot scansione porte:**
+![Scan porte avanzato](https://i.imgur.com/jNoJ5Ld.png)
+
+**Osservazioni:**
+- Porta 443: aperta, testabile via HTTPS.  
+- Porta 8080: filtrata, non raggiungibile dall’esterno.  
+- Nessuna vulnerabilità rilevata con scansioni automatiche e manuali.
+
+---
+
+## 7. Conclusioni e raccomandazioni
+
+1. **SQL Injection:** non presente su login o API.  
+2. **XSS:** input sanitizzato correttamente, Next.js/React protegge il frontend.  
+3. **CSRF e sessione:** testati tramite Burp Repeater → protezione attiva.  
+4. **Enumerazione NID:** possibile distinguere nid esistenti e non → considerare messaggi generici per login.  
+5. **Porta 8080 filtrata:** non raggiungibile dall’esterno, nessuna azione possibile.  
+
+---
+
