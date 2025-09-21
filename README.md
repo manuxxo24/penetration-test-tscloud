@@ -1,65 +1,121 @@
-# Penetration Test – tscloudapp.vercel.app
-
-Questo repository documenta i test di sicurezza effettuati sul sito di test ospitato su Vercel.  
-**Obiettivo:** verificare la sicurezza e la logica dell’applicazione Next.js/TypeScript.
-
----
+# Security Testing Report – TestWatchApp
 
 ## 1. Introduzione
-Il report descrive i test di sicurezza effettuati sui principali endpoint e input dell’applicazione.  
-Focus su:
-- Login e autenticazione
-- XSS e input sanitization
-- CSRF e controllo sessione
-- Enumerazione ID utenti (nid)
-- Controllo accesso e sicurezza API
+Il report descrive i test di sicurezza effettuati sull’applicazione Next.js/TypeScript ospitata su Vercel.  
+**Obiettivo:** identificare vulnerabilità lato login, API, input utente, configurazioni server e logica applicativa.
+
+**Ambiente di test:**
+- Sistema operativo: Kali Linux  
+- Strumenti: Burp Suite Community Edition, sqlmap, Nikto, Gobuster, Dirb, Nmap  
+- Applicazione target: Next.js / TypeScript  
+- URL: `https://testwatchapp.vercel.app`  
 
 ---
 
-## 2. Ambiente
-- **Sistema operativo:** Kali Linux  
-- **Strumenti:** Burp Suite Community Edition, Browser con DevTools, sqlmap, Nikto, Gobuster, Dirb, Nmap  
-- **Applicazione:** Next.js / TypeScript  
-- **Porte rilevate:** 443 (HTTPS), 8080 (filtrata)
+## 2. Scansione iniziale e porte
+
+**Obiettivo:** identificare le porte aperte e i servizi esposti dal server.  
+
+| Porta | Stato     | Servizio   | Note                                 |
+|-------|-----------|------------|--------------------------------------|
+| 443   | open      | HTTPS      | Accessibile, login e API funzionanti |
+| 80    | open      | HTTP       | Reindirizza automaticamente a HTTPS  |
+| 8080  | filtered  | HTTP-proxy | Non raggiungibile dall’esterno       |
+
+**Screenshot:**  
+- IP del sito  
+- Scan Nmap porte  
+
+*Risultato:* solo le porte 80 e 443 risultano testabili, la 8080 è filtrata.
 
 ---
 
-## 3. Test effettuati
+## 3. Enumerazione directory
 
-| # | Campo / Endpoint                  | Tipo di test                  | Input / Payload                              | Risultato / Note |
-|---|----------------------------------|-------------------------------|---------------------------------------------|-----------------|
-| 1 | Login (/api/login)                | Enumerazione NID              | NID validi e sconosciuti, password admin    | "Password non corretta" → NID esiste; "Codice non valido" → NID inesistente |
-| 2 | Motivo ferie (/api/ferie)         | XSS / Caratteri speciali      | `<script>alert('Test')</script>`            | Sanitizzazione attiva, alert non eseguito |
-| 3 | Nome utente / Bio / Descrizione   | XSS / Input speciale          | `<b>bold</b>`, `<img src=x onerror=alert(1)>` | Output escapato → sicuro |
-| 4 | Modifica ferie                    | CSRF / Session test           | POST senza cookie/sessione                  | Fallisce senza sessione valida → protezione attiva |
-| 5 | Visualizzazione ferie / profilo   | Access control                | Modifica ID risorsa `/api/ferie/ID`        | Status code corretto (403/401) per utenti non autorizzati |
-| 6 | Cookie / Session                  | Manipolazione cookie          | Modifica cookie di sessione                | Azioni bloccate se cookie non valido |
+**Strumenti:** Gobuster, Nikto, Dirb  
+**Obiettivo:** scoprire directory e file sensibili esposti sul server.  
 
----
+| Strumento | Risultato | Note                          |
+|-----------|-----------|-------------------------------|
+| Gobuster  | 403       | Tutti i tentativi bloccati    |
+| Dirb      | 403       | Tutti i tentativi bloccati    |
+| Nikto     | 403       | Nessuna directory accessibile |
 
-## 4. Screenshot
+**Screenshot:**  
+- Gobuster/Dirb scansioni  
 
-| Test | Screenshot |
-|------|------------|
-| Login Test | ![Login page]( https://i.imgur.com/5I12Dsj ) |
-| Burp Intercept | ![Burp login intercept]( https://i.imgur.com/UwTSsbV ) |
-| NID Enumeration | ![Tentativo id reale]( https://i.imgur.com/tEaqX2s ) |
-
-*(Per tutti gli screenshot completi, vedere la cartella `screenshots/` o i link Imgur.)*
+*Conclusione:* l’enumerazione di directory non ha dato informazioni utili.
 
 ---
 
-## 5. Risultati
-- **XSS:** tutti i payload testati vengono sanitizzati → nessuna vulnerabilità XSS stored o riflessa.  
-- **Enumerazione NID:** possibile distinguere NID esistenti e non → vulnerabilità logica in ambiente di test.  
-- **CSRF:** protezione corretta verificata tramite richiesta POST senza token/sessione.  
-- **Access control:** controlli corretti sulle risorse degli utenti.  
-- **Porte e rete:** nessuna vulnerabilità critica lato rete o porte aperte.
+## 4. Analisi dei tool web
+
+| Tool     | Risultato                   | Note                                      |
+|----------|-----------------------------|-------------------------------------------|
+| curl     | Nessuna info utile          | Scan endpoint base                        |
+| WhatWeb  | Individua stack tecnologico | Nessuna vulnerabilità rilevata            |
+| Wafw00f  | Nessun WAF rilevato         | Applicazione non protetta da WAF visibile |
 
 ---
 
-## 6. Conclusioni e raccomandazioni
-1. L’applicazione Next.js / React gestisce correttamente la sanitizzazione dell’input → protezione XSS efficace.  
-2. Nessuna vulnerabilità critica lato rete o porte aperte.  
-3. Enumerazione NID potrebbe rappresentare una vulnerabilità logica → considerare messaggi più generici su login.  
-4. CSRF e controllo sessione attivi e funzionanti.  
+## 5. Login e SQL Injection
+
+**Obiettivo:** testare endpoint `/api/login` per SQL injection e enumerazione NID.  
+
+**Passaggi effettuati:**
+1. Intercettata richiesta POST con Burp Suite Repeater.  
+2. Tentativo SQL injection sul campo `nid` (accetta solo 4 cifre).  
+3. Test sqlmap con file di richiesta.  
+
+| Test                        | Input / Payload                 | Risultato / Note                |
+|-----------------------------|---------------------------------|---------------------------------|
+| NID valido, password errata | NID reale + pwd sbagliata       | `"Password non corretta"`       |
+| NID inesistente             | NID casuale                     | `"Codice di accesso non valido"`|
+| SQL Injection               | ' OR 1=1--                      | Nessun risultato                |
+| Sqlmap file request         | Intercettata login POST         | 0 risultati                     |
+
+*Conclusione:* nessuna vulnerabilità SQL injection, logica NID distinguibile.
+
+---
+
+## 6. Test XSS
+
+**Obiettivo:** verificare Cross-Site Scripting sui campi input del sito.  
+
+| Campo / Endpoint          | Payload                                       | Risultato / Note |
+|---------------------------|-----------------------------------------------|----------------------------------------|
+| Motivo ferie (/api/ferie) | `<script>alert('Test')</script>`              | Input sanitizzato, alert non eseguito  |
+| Bio / Descrizione         | `<b>bold</b>`, `<img src=x onerror=alert(1)>` | Output escapato, nessuna vulnerabilità |
+| Vari input frontend       | Payload HTML/JS                               | Sanitizzazione corretta                |
+
+*Conclusione:* nessuna vulnerabilità XSS rilevata.
+
+---
+
+## 7. Test API
+
+**Obiettivo:** intercettare richieste GET/POST con token, testare accesso a risorse protette.  
+
+| Risorsa API            | Test                  | Risultato / Note        |
+|------------------------|-----------------------|-------------------------|
+| `/api/orders`          | Token intercettati    | 401 Token non valido    |
+| `/api/watches`         | Token intercettati    | 500 Errore fetch        |
+| `/api/documents`       | Token intercettati    | 500 Errore fetch        |
+| `/api/users`           | Token intercettati    | 404 Risorsa non trovata |
+
+*Conclusione:* i token validi non permettono accesso non autorizzato, alcune API restituiscono errori server.
+
+---
+
+## 8. Conclusioni e raccomandazioni
+
+1. **SQL Injection:** non presente su login o API.  
+2. **XSS:** input sanitizzato correttamente → protezione efficace.  
+3. **CSRF e sessione:** protezione attiva verificata tramite richieste POST senza token/sessione.  
+4. **Enumerazione NID:** possibile distinguere NID esistenti e non → considerare messaggi più generici.  
+5. **API:** alcune restituiscono 500 o 404 → controllare gestione errori e validazione token.  
+6. **Porte:** 8080 filtrata, nessuna azione possibile; 443 e 80 testabili senza vulnerabilità rilevate.
+
+---
+
+**Note finali:** il sito gestisce correttamente sanitizzazione degli input, controllo sessioni e accesso alle API. Nessuna vulnerabilità critica rilevata durante i test.
